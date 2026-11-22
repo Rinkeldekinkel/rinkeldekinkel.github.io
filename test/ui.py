@@ -23,14 +23,21 @@ with sync_playwright() as p:
     pg.on('console', lambda m: errors.append(m.text) if m.type == 'error' and 'ERR_' not in m.text and 'Failed to load resource' not in m.text else None)
     pg.route('**/fonts.g*/**', lambda r: r.abort())
     pg.route('**/api/v1/models', lambda r: r.fulfill(json={'data': [{'id': 'openrouter/auto'}, {'id': 'test/model'}]}))
-    calls = []
+    calls = []; stream_mode = ['ok']
     def chat(r):
         body = r.request.post_data_json; calls.append(body)
         if 'Connection test' in body['messages'][-1]['content']: return r.fulfill(json={'model': 'test/model-1', 'choices': [{'message': {'content': 'pong'}}]})
         payload = DECREE if 'decree' in body['messages'][-1]['content'] else AI_TURN
         if 'retrospective' in body['messages'][0]['content']: payload = {'title': 'A Short, Loud Life', 'text': 'It burned brightly.'}
         if len(calls) == 3: return r.fulfill(status=500, json={'error': {'message': 'boom'}})
-        r.fulfill(json={'choices': [{'message': {'content': '```json\n' + json.dumps(payload) + '\n```'}}]})
+        text = '```json\n' + json.dumps(payload) + '\n```'
+        assert body.get('stream') is True
+        mode = stream_mode[0]
+        if mode == 'json': return r.fulfill(json={'choices': [{'message': {'content': text}}]})
+        sse = ': OPENROUTER PROCESSING\n\n' + ''.join('data: ' + json.dumps({'model': 'test/model-1', 'choices': [{'delta': {'content': text[i:i+37]}}]}) + '\n\n' for i in range(0, len(text), 37))
+        if mode == 'cut': sse += 'data: ' + json.dumps({'choices': [{'delta': {}, 'finish_reason': 'length'}]}) + '\n\ndata: [DONE]\n\n'
+        elif mode == 'ok': sse += 'data: ' + json.dumps({'choices': [{'delta': {}, 'finish_reason': 'stop'}]}) + '\n\ndata: [DONE]\n\n'
+        r.fulfill(status=200, headers={'content-type': 'text/event-stream'}, body=sse)
     pg.route('**/api/v1/chat/completions', chat)
 
     # 1. almanac mode, play by hand then watch to the end
@@ -80,6 +87,17 @@ with sync_playwright() as p:
     assert 'response_format' in calls[2] and 'response_format' not in calls[3]
     pg.click('.option >> nth=0'); pg.wait_for_selector('#outcome')
     assert 'New York Empires are no more' in pg.inner_text('.notes')
+    # no end signal (stream just closes) -> retried once, then the almanac steps in
+    stream_mode[0] = 'none'; n = len(calls)
+    pg.click('[data-act=next]'); pg.wait_for_selector('.option')
+    assert 'closed before the model finished' in pg.inner_text('.notice') and len(calls) == n + 2, pg.inner_text('.notice')
+    # cut off by the output limit -> reported, not retried
+    pg.click('.option >> nth=1'); pg.wait_for_selector('#outcome'); stream_mode[0] = 'cut'; n = len(calls)
+    pg.click('[data-act=next]'); pg.wait_for_selector('.option')
+    assert 'output limit' in pg.inner_text('.notice') and len(calls) == n + 1
+    # a provider that does not stream still works
+    pg.click('.option >> nth=1'); pg.wait_for_selector('#outcome'); stream_mode[0] = 'json'
+    pg.click('[data-act=next]'); pg.wait_for_selector('.option'); assert pg.locator('.notice').count() == 0
     pg.click('[data-act=settings]'); pg.wait_for_selector('.dialog'); pg.click('.dialog [data-act=close-settings]')
     pg.set_viewport_size({'width': 390, 'height': 800}); pg.screenshot(path=str(out / '6-mobile.png'), full_page=True)
     b.close()

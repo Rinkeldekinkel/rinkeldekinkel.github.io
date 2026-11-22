@@ -133,7 +133,7 @@
         (e.error ? '<p class="dbg-err">' + esc(e.error) + '</p>' : '') +
         '<h4>Input — request body</h4><pre>' + esc(pretty(e.request)) + '</pre>' +
         (reply ? '<h4>Output — message content</h4><pre>' + esc(reply) + '</pre>' : '') +
-        '<h4>Output — full response</h4><pre>' + esc(e.response ? pretty(e.response) : e.ms == null ? '(waiting for reply)' : '(no response body)') + '</pre></details>';
+        '<h4>Output — ' + (e.response && e.response.streamed ? 'stream summary' : 'full response') + '</h4><pre>' + esc(e.response ? pretty(e.response) : e.ms == null ? '(waiting for reply)' : '(no response body)') + '</pre></details>';
     }).join('');
     return '<section class="panel debug"><h3>OpenRouter debug log</h3>' +
       (rows || '<p class="fine">No requests yet. Requests appear here as they are sent; the API key is never shown.</p>') + '</section>';
