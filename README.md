@@ -9,6 +9,8 @@ You can run the league yourself or switch on **Watch** and let it take the cours
 - **OpenRouter AI** — paste an [OpenRouter API key](https://openrouter.ai/keys) on the start screen and pick any chat model (`openrouter/auto` by default). The model writes each season's report and dilemma, judges free-text decrees you write yourself, and writes the closing retrospective. One request per season, so a full baseball run is about 150 requests.
 - **Built-in almanac** — no key needed. A fixed deck of period dilemmas. Also used automatically for any season where the OpenRouter call fails.
 
+The start screen (and Settings in-game) has a **Test connection** button, which sends one tiny request to check the key, model and network, and a **Debug mode** switch, which shows every request body and raw response in a log under the page. The key never appears in the log.
+
 The key is stored in your browser's `localStorage` and sent only to `openrouter.ai`. There is no server.
 
 ## Put it on GitHub Pages

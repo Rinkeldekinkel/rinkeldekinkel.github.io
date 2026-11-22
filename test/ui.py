@@ -26,6 +26,7 @@ with sync_playwright() as p:
     calls = []
     def chat(r):
         body = r.request.post_data_json; calls.append(body)
+        if 'Connection test' in body['messages'][-1]['content']: return r.fulfill(json={'model': 'test/model-1', 'choices': [{'message': {'content': 'pong'}}]})
         payload = DECREE if 'decree' in body['messages'][-1]['content'] else AI_TURN
         if 'retrospective' in body['messages'][0]['content']: payload = {'title': 'A Short, Loud Life', 'text': 'It burned brightly.'}
         if len(calls) == 3: return r.fulfill(status=500, json={'error': {'message': 'boom'}})
@@ -61,7 +62,15 @@ with sync_playwright() as p:
     # 2. AI mode with a mocked OpenRouter
     pg.click('[data-act=new]')
     pg.check('input[name=useAI][value="1"]'); pg.fill('[data-set=key]', 'sk-or-test'); pg.check('input[name=auto][value="0"]')
+    pg.click('[data-act=test]'); pg.wait_for_selector('.test-status.ok')
+    assert 'Connected' in pg.inner_text('#test-status'), pg.inner_text('#test-status')
+    assert pg.locator('.debug').count() == 0
+    pg.check('[data-set=debug]'); assert pg.locator('.dbg').count() == 1
+    assert 'sk-or-test' not in pg.inner_text('#debug') and 'pong' in pg.inner_text('#debug')
+    pg.screenshot(path=str(out / '7-test-debug.png'), full_page=True)
+    calls.clear()
     pg.click('button[type=submit]'); pg.wait_for_selector('.option')
+    assert pg.locator('.dbg').count() == 2 and 'Drovers Take the Flag' in pg.inner_text('.dbg >> nth=0')
     assert 'Drovers Take the Flag' in pg.inner_text('.headline')
     assert calls[0]['messages'][0]['role'] == 'system' and calls[0]['model'] == 'openrouter/auto'
     pg.screenshot(path=str(out / '5-ai.png'), full_page=True)

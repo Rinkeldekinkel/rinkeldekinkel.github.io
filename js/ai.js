@@ -57,32 +57,52 @@
     return JSON.parse(text.slice(a, b + 1));
   }
 
-  async function call(settings, messages, maxTokens, jsonMode) {
-    var body = { model: settings.model || 'openrouter/auto', messages: messages, temperature: 0.9, max_tokens: maxTokens };
+  /* Every request and reply is kept here (newest first) for debug mode. The API key is never logged. */
+  var log = [], api = {};
+  function logged(entry) { if (typeof api.onLog === 'function') { try { api.onLog(entry); } catch (e) { } } }
+
+  async function call(settings, messages, maxTokens, jsonMode, temperature) {
+    var body = { model: settings.model || 'openrouter/auto', messages: messages, temperature: temperature == null ? 0.9 : temperature, max_tokens: maxTokens };
     if (jsonMode) body.response_format = { type: 'json_object' };
-    var ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, 60000), res, data;
+    var entry = { at: new Date(), request: body, status: null, response: null, error: null, ms: null };
+    log.unshift(entry); if (log.length > 25) log.pop();
+    logged(entry);
+    var t0 = Date.now(), ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, 60000), res, data;
     try {
-      res = await fetch(URL, {
-        method: 'POST', signal: ctl.signal,
-        headers: {
-          'Authorization': 'Bearer ' + settings.key, 'Content-Type': 'application/json',
-          'HTTP-Referer': root.location ? root.location.origin : '', 'X-Title': 'Commissioner'
-        },
-        body: JSON.stringify(body)
-      });
-      data = await res.json().catch(function () { return null; });
+      try {
+        res = await fetch(URL, {
+          method: 'POST', signal: ctl.signal,
+          headers: {
+            'Authorization': 'Bearer ' + settings.key, 'Content-Type': 'application/json',
+            'HTTP-Referer': root.location ? root.location.origin : '', 'X-Title': 'Commissioner'
+          },
+          body: JSON.stringify(body)
+        });
+        data = await res.json().catch(function () { return null; });
+      } catch (e) {
+        throw new Error(e.name === 'AbortError' ? 'OpenRouter timed out.' : 'Could not reach OpenRouter.');
+      } finally { clearTimeout(timer); }
+      entry.status = res.status; entry.response = data;
+      if (!res.ok || !data || data.error) {
+        var msg = (data && data.error && data.error.message) || ('HTTP ' + res.status);
+        var err = new Error(res.status === 401 ? 'OpenRouter rejected the API key.' : res.status === 402 ? 'The OpenRouter account is out of credit.' : 'OpenRouter: ' + msg);
+        err.status = res.status;
+        throw err;
+      }
+      var content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+      if (!content) throw new Error('The model returned an empty reply.');
+      return content;
     } catch (e) {
-      throw new Error(e.name === 'AbortError' ? 'OpenRouter timed out.' : 'Could not reach OpenRouter.');
-    } finally { clearTimeout(timer); }
-    if (!res.ok || !data || data.error) {
-      var msg = (data && data.error && data.error.message) || ('HTTP ' + res.status);
-      var err = new Error(res.status === 401 ? 'OpenRouter rejected the API key.' : res.status === 402 ? 'The OpenRouter account is out of credit.' : 'OpenRouter: ' + msg);
-      err.status = res.status;
-      throw err;
-    }
-    var content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    if (!content) throw new Error('The model returned an empty reply.');
-    return content;
+      entry.error = e.message; throw e;
+    } finally { entry.ms = Date.now() - t0; logged(entry); }
+  }
+
+  /* One tiny request to prove the key, the model and the network all work. */
+  async function test(settings) {
+    if (!settings.key) throw new Error('Enter an OpenRouter API key first.');
+    var text = await call(settings, [{ role: 'user', content: 'Connection test. Reply with the single word: pong' }], 256, false, 0);
+    var e = log[0];
+    return { text: text.trim().slice(0, 80), model: (e.response && e.response.model) || settings.model, ms: e.ms };
   }
 
   /* Ask for JSON; if the chosen model has no JSON mode, or garbles it, try once more without. */
@@ -147,5 +167,7 @@
     return (data.data || []).map(function (m) { return m.id; }).sort();
   }
 
-  root.CommishAI = { generateTurn: generateTurn, judgeDecree: judgeDecree, epitaph: epitaph, listModels: listModels };
+  api.generateTurn = generateTurn; api.judgeDecree = judgeDecree; api.epitaph = epitaph; api.listModels = listModels;
+  api.test = test; api.log = log;
+  root.CommishAI = api;
 })(typeof window !== 'undefined' ? window : globalThis);

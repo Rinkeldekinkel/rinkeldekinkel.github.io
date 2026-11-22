@@ -11,8 +11,8 @@
     del: function (k) { try { localStorage.removeItem(k); } catch (e) { } }
   };
 
-  var settings = Object.assign({ key: '', model: 'openrouter/auto', useAI: true, auto: false }, store.get(SET) || {});
-  var app = { view: 'start', state: null, tab: 'standings', notice: '', busy: false, form: { sport: 'baseball', league: '', name: '' }, end: null, settingsOpen: false };
+  var settings = Object.assign({ key: '', model: 'openrouter/auto', useAI: true, auto: false, debug: false }, store.get(SET) || {});
+  var app = { view: 'start', state: null, tab: 'standings', notice: '', busy: false, form: { sport: 'baseball', league: '', name: '' }, end: null, settingsOpen: false, test: null };
   var autoTimer = null;
 
   function esc(x) {
@@ -103,7 +103,7 @@
     var s = app.state;
     var year = app.view === 'start' ? D.SPORTS[app.form.sport].startYear : s.year;
     document.body.dataset.era = E.eraFor(year).key;
-    $app.innerHTML = (app.view === 'start' ? viewStart() : app.view === 'end' ? viewEnd() : viewGame()) + (app.settingsOpen ? viewSettings() : '');
+    $app.innerHTML = (app.view === 'start' ? viewStart() : app.view === 'end' ? viewEnd() : viewGame()) + '<div id="debug">' + debugHTML() + '</div>' + (app.settingsOpen ? viewSettings() : '');
   }
 
   function storytellerFields() {
@@ -115,7 +115,45 @@
       '<label>Model<input type="text" data-set="model" list="models" value="' + esc(settings.model) + '" placeholder="openrouter/auto" spellcheck="false"></label>' +
       '<datalist id="models"></datalist>' +
       '<p class="fine">The key is kept in this browser only and sent only to openrouter.ai. Get one at <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>. Any chat model works; <code>openrouter/auto</code> lets OpenRouter choose. One request per season.</p>' +
+      '<div class="test-row"><button class="btn small" type="button" data-act="test"' + (app.test && app.test.state === 'busy' ? ' disabled' : '') + '>Test connection</button>' +
+      '<span id="test-status" role="status" class="test-status ' + (app.test ? app.test.state : '') + '">' + esc(app.test ? app.test.msg : '') + '</span></div>' +
+      '<label class="radio"><input type="checkbox" data-set="debug"' + (settings.debug ? ' checked' : '') + '> <span><b>Debug mode</b> — show exactly what is sent to OpenRouter and what comes back</span></label>' +
       '</div></fieldset>';
+  }
+
+  /* ---------- debug log ---------- */
+
+  function pretty(x) { try { return JSON.stringify(x, null, 2); } catch (e) { return String(x); } }
+  function debugHTML() {
+    if (!settings.debug) return '';
+    var rows = AI.log.map(function (e, i) {
+      var reply = e.response && e.response.choices && e.response.choices[0] && e.response.choices[0].message && e.response.choices[0].message.content;
+      var state = e.ms == null ? 'waiting…' : (e.error ? 'failed' : 'ok') + (e.status ? ' · HTTP ' + e.status : '') + ' · ' + (e.ms / 1000).toFixed(1) + 's';
+      return '<details class="dbg' + (e.error ? ' bad' : '') + '"' + (i === 0 ? ' open' : '') + '><summary>' + esc(e.at.toLocaleTimeString()) + ' · ' + esc(e.request.model) + ' · ' + state + '</summary>' +
+        (e.error ? '<p class="dbg-err">' + esc(e.error) + '</p>' : '') +
+        '<h4>Input — request body</h4><pre>' + esc(pretty(e.request)) + '</pre>' +
+        (reply ? '<h4>Output — message content</h4><pre>' + esc(reply) + '</pre>' : '') +
+        '<h4>Output — full response</h4><pre>' + esc(e.response ? pretty(e.response) : e.ms == null ? '(waiting for reply)' : '(no response body)') + '</pre></details>';
+    }).join('');
+    return '<section class="panel debug"><h3>OpenRouter debug log</h3>' +
+      (rows || '<p class="fine">No requests yet. Requests appear here as they are sent; the API key is never shown.</p>') + '</section>';
+  }
+  function updateDebug() { var el = document.getElementById('debug'); if (el) el.innerHTML = debugHTML(); }
+  AI.onLog = updateDebug;
+
+  function setTest(state, msg) {
+    app.test = { state: state, msg: msg };
+    var el = document.getElementById('test-status'), btn = $app.querySelector('[data-act=test]');
+    if (el) { el.className = 'test-status ' + state; el.textContent = msg; }
+    if (btn) btn.disabled = state === 'busy';
+  }
+  async function testConnection() {
+    if (app.test && app.test.state === 'busy') return;
+    setTest('busy', 'Contacting OpenRouter…');
+    try {
+      var r = await AI.test(settings);
+      setTest('ok', 'Connected. ' + r.model + ' replied “' + r.text + '” in ' + (r.ms / 1000).toFixed(1) + 's.');
+    } catch (e) { setTest('fail', e.message); }
   }
 
   function viewStart() {
@@ -251,6 +289,7 @@
       if (el.classList.contains('overlay') && ev.target.closest('[data-stop]')) return;
       app.settingsOpen = false; render(); scheduleAuto(); return;
     }
+    if (act === 'test') { testConnection(); return; }
     if (act === 'choose' && s.phase === 'decision' && !app.busy) resolve(s.turn.dilemma.options[+el.dataset.i]);
     else if (act === 'next' && s.phase === 'outcome') next();
     else if (act === 'tab') { app.tab = el.dataset.tab; render(); }
@@ -277,7 +316,8 @@
       settings.auto = el.type === 'checkbox' ? el.checked : el.value === '1'; saveSettings();
       if (app.view === 'game') scheduleAuto();
     }
-    else { settings[k] = el.value.trim(); saveSettings(); }
+    else if (k === 'debug') { settings.debug = el.checked; saveSettings(); updateDebug(); }
+    else { settings[k] = el.value.trim(); saveSettings(); app.test = null; }
   });
   $app.addEventListener('input', function (ev) {
     var el = ev.target;

@@ -176,3 +176,19 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: .8; }
 .dialog h2 { font: var(--head-weight) 1.6rem var(--head); text-transform: var(--head-case); }
 
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* Connection test + debug log */
+.test-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.test-status { font: .85rem/1.35 var(--ui); color: var(--muted); }
+.test-status.ok { color: var(--good); font-weight: 700; }
+.test-status.fail { color: var(--bad); font-weight: 700; }
+#debug:not(:empty) { margin-top: 20px; }
+.dbg { border-top: 1px solid color-mix(in srgb, var(--rule) 30%, transparent); padding: 6px 0; }
+.dbg summary { cursor: pointer; font: 600 .85rem var(--ui); font-variant-numeric: tabular-nums; }
+.dbg.bad summary, .dbg-err { color: var(--bad); }
+.dbg-err { font: 700 .85rem var(--ui); margin-top: 6px; }
+.dbg pre {
+  font: .78rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere;
+  background: color-mix(in srgb, var(--ink) 7%, transparent); border-radius: var(--radius);
+  padding: 10px; margin: 0; max-height: 340px; overflow: auto;
+}
